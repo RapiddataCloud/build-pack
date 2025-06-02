@@ -167,7 +167,7 @@ def build_mpr(source_dir, mpr_file, destination, artifacts_repository=None):
     mx_version = cursor.fetchone()[0]
     mx_version_value = parse_version(mx_version)
     logging.debug('Detected Mendix version {}'.format('.'.join(map(str,mx_version_value))))
-    dotnet = 'dotnet' if mx_version_value >= (10, 0, 0, 0) else 'mono'
+    dotnet = 'dotnet' if mx_version_value >= (9, 22, 0, 0) else 'mono'
     builder_image = build_mpr_builder(mx_version, dotnet, artifacts_repository)
     model_version = None
     try:
