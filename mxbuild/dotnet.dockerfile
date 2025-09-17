@@ -12,7 +12,7 @@ ENV USER_UID=${USER_UID}
 # Install common prerequisites
 RUN rpm -ivh https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm &&\
     microdnf update -y && \
-    microdnf install -y glibc-langpack-en openssl fontconfig tzdata-java libgdiplus libicu tar jq \
+    microdnf install -y glibc-langpack-en openssl fontconfig tzdata-java libgdiplus libicu tar gzip jq \
         java-11-openjdk-devel java-17-openjdk-devel java-21-openjdk-devel && \
     microdnf clean all && rm -rf /var/cache/yum
 
