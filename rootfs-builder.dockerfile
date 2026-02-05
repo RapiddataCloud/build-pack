@@ -68,6 +68,7 @@ RUN PYTHON_BUILD_RPMS="python3.11-pip python3.11-devel libffi-devel gcc" && \
     microdnf install -y $PYTHON_BUILD_RPMS && \
     mkdir -p  /home/vcap/.local/bin/ && \
     if [ ! -f /home/vcap/.local/bin/pip ] ; then ln -s /usr/bin/pip3.11 /home/vcap/.local/bin/pip ; fi && \
+    if ! command -v pip3 ; then ln -s /usr/bin/pip3.11 /usr/bin/pip3 ; fi && \
     rm /opt/mendix/buildpack/vendor/wheels/* && \
     chmod +rx /opt/mendix/buildpack/bin/bootstrap-python && /opt/mendix/buildpack/bin/bootstrap-python /opt/mendix/buildpack /tmp/buildcache && \
     microdnf remove -y $PYTHON_BUILD_RPMS && microdnf clean all && rm -rf /var/cache/yum
