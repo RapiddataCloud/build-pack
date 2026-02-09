@@ -10,7 +10,7 @@ ENV LANG C.UTF-8
 ENV LC_ALL C.UTF-8
 
 # CF buildpack version
-ARG CF_BUILDPACK=v5.0.26
+ARG CF_BUILDPACK=v5.0.30
 # CF buildpack download URL
 ARG CF_BUILDPACK_URL=https://github.com/mendix/cf-mendix-buildpack/releases/download/${CF_BUILDPACK}/cf-mendix-buildpack.zip
 
@@ -19,7 +19,7 @@ ARG BUILDPACK_XTRACE
 
 # install dependencies & remove package lists
 RUN microdnf update -y && \
-    microdnf module enable nginx:1.24 -y && \
+    microdnf module enable nginx:1.26 -y && \
     microdnf install -y wget glibc-langpack-en python311 openssl tar gzip unzip libpq nginx nginx-mod-stream binutils fontconfig findutils java-11-openjdk-headless java-17-openjdk-headless java-21-openjdk-headless && \
     microdnf remove -y /usr/bin/python && \
     microdnf clean all && rm -rf /var/cache/yum
@@ -68,6 +68,7 @@ RUN PYTHON_BUILD_RPMS="python3.11-pip python3.11-devel libffi-devel gcc" && \
     microdnf install -y $PYTHON_BUILD_RPMS && \
     mkdir -p  /home/vcap/.local/bin/ && \
     if [ ! -f /home/vcap/.local/bin/pip ] ; then ln -s /usr/bin/pip3.11 /home/vcap/.local/bin/pip ; fi && \
+    if ! command -v pip3 ; then ln -s /usr/bin/pip3.11 /usr/bin/pip3 ; fi && \
     rm /opt/mendix/buildpack/vendor/wheels/* && \
     chmod +rx /opt/mendix/buildpack/bin/bootstrap-python && /opt/mendix/buildpack/bin/bootstrap-python /opt/mendix/buildpack /tmp/buildcache && \
     microdnf remove -y $PYTHON_BUILD_RPMS && microdnf clean all && rm -rf /var/cache/yum
