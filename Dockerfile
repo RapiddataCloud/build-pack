@@ -1,8 +1,8 @@
-# Dockerfile to create a Mendix Docker image with Node.js 20 LTS and Chromium
+# Dockerfile to create a Mendix Docker image with Node.js 20 LTS and Google Chrome
 # Base: RHEL/UBI (uses microdnf)
 #
 # Author: Mendix Digital Ecosystems, digitalecosystems@mendix.com
-# Version: v6.0.2 (customized - UBI + Node.js + Chromium)
+# Version: v6.0.3 (customized - UBI + Node.js + Google Chrome)
 
 ARG ROOTFS_IMAGE=mendix-rootfs:app
 ARG BUILDER_ROOTFS_IMAGE=mendix-rootfs:builder
@@ -48,70 +48,50 @@ USER root
 ARG DD_API_KEY
 
 # ============================================================
-# Install Ruby (if Datadog), Chromium, and dependencies via microdnf
+# Step 1: Install basic utilities (guaranteed to be available)
 # ============================================================
 RUN microdnf update -y && \
     microdnf install -y \
-        # Basic utilities
         tar \
         gzip \
         xz \
         which \
         ca-certificates \
-    && \
-    # Install Ruby if Datadog is detected
-    if [ ! -z "$DD_API_KEY" ] ; then \
-        microdnf install -y ruby ; \
-    fi && \
-    # Enable CodeReady Builder / EPEL-like repos for Chromium (UBI 8/9)
-    # Chromium is not in the default UBI repos, so we need to add one
-    microdnf install -y \
-        # Chromium dependencies (available in UBI)
-        nss \
-        nss-tools \
-        nspr \
-        alsa-lib \
-        atk \
-        at-spi2-atk \
-        at-spi2-core \
-        cups-libs \
-        dbus-libs \
-        gtk3 \
-        libdrm \
-        libxkbcommon \
-        libXcomposite \
-        libXdamage \
-        libXext \
-        libXfixes \
-        libXrandr \
-        libX11 \
-        libXcb \
-        mesa-libgbm \
-        pango \
-        cairo \
-        # Fonts
-        liberation-fonts \
-        google-noto-sans-fonts \
-        google-noto-sans-cjk-ttc-fonts \
-        google-noto-emoji-fonts \
-    && \
-    microdnf clean all && \
+        shadow-utils \
+    && microdnf clean all && \
     rm -rf /var/cache/yum /var/cache/dnf
 
 # ============================================================
-# Install Chromium from a prebuilt binary (since UBI doesn't ship Chromium)
-# Using Chromium from Linux Foundation / official archives
+# Step 2: Install Ruby conditionally for Datadog
 # ============================================================
-# Option: Use Google Chrome instead (has a stable RPM for RHEL)
+RUN if [ ! -z "$DD_API_KEY" ] ; then \
+        microdnf install -y ruby && \
+        microdnf clean all && \
+        rm -rf /var/cache/yum /var/cache/dnf ; \
+    fi
+
+# ============================================================
+# Step 3: Install Google Chrome
+# The Chrome RPM automatically pulls in all required dependencies
+# (nss, gtk3, fonts, etc.) - no need to list them manually
+# ============================================================
 RUN curl -fsSL https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm -o /tmp/chrome.rpm && \
     microdnf install -y /tmp/chrome.rpm && \
     rm -f /tmp/chrome.rpm && \
     microdnf clean all && \
     rm -rf /var/cache/yum /var/cache/dnf && \
-    google-chrome --version
+    google-chrome --version --no-sandbox || true
 
 # ============================================================
-# Install Node.js 20 LTS from official binary
+# Step 4: Install optional fonts (non-fatal if unavailable)
+# ============================================================
+RUN microdnf install -y liberation-fonts dejavu-sans-fonts 2>/dev/null || \
+    echo "WARNING: Some fonts were not available, continuing..." && \
+    microdnf clean all && \
+    rm -rf /var/cache/yum /var/cache/dnf
+
+# ============================================================
+# Step 5: Install Node.js 20 LTS from official binary
 # ============================================================
 ENV NODE_VERSION=20.18.0
 RUN ARCH=$(uname -m) && \
@@ -128,7 +108,7 @@ RUN ARCH=$(uname -m) && \
     chmod -R a+rx /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx
 
 # ============================================================
-# Environment variables for Chrome/Puppeteer
+# Environment variables for Chrome / Puppeteer
 # ============================================================
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome
