@@ -1,9 +1,8 @@
-# Dockerfile to create a Mendix Docker image based on either the source code or
-# Mendix Deployment Archive (aka mda file)
-# Ubuntu-based with Node.js 20 LTS and Chromium
+# Dockerfile to create a Mendix Docker image with Node.js 20 LTS and Chromium
+# Base: RHEL/UBI (uses microdnf)
 #
 # Author: Mendix Digital Ecosystems, digitalecosystems@mendix.com
-# Version: v6.0.2 (customized - Ubuntu + Node.js + Chromium)
+# Version: v6.0.2 (customized - UBI + Node.js + Chromium)
 
 ARG ROOTFS_IMAGE=mendix-rootfs:app
 ARG BUILDER_ROOTFS_IMAGE=mendix-rootfs:builder
@@ -13,23 +12,17 @@ ARG BUILDER_ROOTFS_IMAGE=mendix-rootfs:builder
 # ============================================================
 FROM ${BUILDER_ROOTFS_IMAGE} AS builder
 
-# Build-time variables
 ARG BUILD_PATH=project
 ARG DD_API_KEY
 ARG EXCLUDE_LOGFILTER=true
 ARG BLOBSTORE
 ARG BUILDPACK_XTRACE
 
-# Copy project model/sources
 COPY $BUILD_PATH /opt/mendix/build
 
-# Use nginx supplied by the base OS
 ENV NGINX_CUSTOM_BIN_PATH=/usr/sbin/nginx
-
-# Set the user ID
 ARG USER_UID=1001
 
-# Copy start scripts
 COPY scripts/startup.py scripts/vcap_application.json /opt/mendix/build/
 
 RUN mkdir -p /tmp/buildcache/bust /tmp/cf-deps /var/mendix/build /var/mendix/build/.local && \
@@ -52,103 +45,95 @@ LABEL maintainer="digitalecosystems@mendix.com"
 # Switch to root for package installation
 USER root
 
-# Prevent interactive prompts during package installation
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=UTC
-
-# ============================================================
-# Install base utilities, Datadog (if applicable), Node.js 20 LTS, and Chromium
-# ============================================================
 ARG DD_API_KEY
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+# ============================================================
+# Install Ruby (if Datadog), Chromium, and dependencies via microdnf
+# ============================================================
+RUN microdnf update -y && \
+    microdnf install -y \
+        # Basic utilities
+        tar \
+        gzip \
+        xz \
+        which \
         ca-certificates \
-        curl \
-        gnupg \
-        wget \
-        xz-utils \
-        tzdata \
     && \
-    # ------------------------------------------------------------
     # Install Ruby if Datadog is detected
-    # ------------------------------------------------------------
     if [ ! -z "$DD_API_KEY" ] ; then \
-        apt-get install -y --no-install-recommends ruby ruby-dev ; \
+        microdnf install -y ruby ; \
     fi && \
-    # ------------------------------------------------------------
-    # Install Chromium and its runtime dependencies
-    # ------------------------------------------------------------
-    apt-get install -y --no-install-recommends \
-        chromium-browser \
-        # Fonts for proper rendering (including CJK and Arabic for UAE)
-        fonts-liberation \
-        fonts-noto \
-        fonts-noto-cjk \
-        fonts-noto-color-emoji \
-        fonts-freefont-ttf \
-        # Chromium runtime dependencies
-        libnss3 \
-        libnspr4 \
-        libatk-bridge2.0-0 \
-        libatk1.0-0 \
-        libatspi2.0-0 \
-        libcups2 \
-        libdbus-1-3 \
-        libdrm2 \
-        libxkbcommon0 \
-        libxcomposite1 \
-        libxdamage1 \
-        libxext6 \
-        libxfixes3 \
-        libxrandr2 \
-        libgbm1 \
-        libpango-1.0-0 \
-        libcairo2 \
-        libasound2 \
-        libx11-xcb1 \
-        libxcb-dri3-0 \
-        libxshmfence1 \
-        libgtk-3-0 \
+    # Enable CodeReady Builder / EPEL-like repos for Chromium (UBI 8/9)
+    # Chromium is not in the default UBI repos, so we need to add one
+    microdnf install -y \
+        # Chromium dependencies (available in UBI)
+        nss \
+        nss-tools \
+        nspr \
+        alsa-lib \
+        atk \
+        at-spi2-atk \
+        at-spi2-core \
+        cups-libs \
+        dbus-libs \
+        gtk3 \
+        libdrm \
+        libxkbcommon \
+        libXcomposite \
+        libXdamage \
+        libXext \
+        libXfixes \
+        libXrandr \
+        libX11 \
+        libXcb \
+        mesa-libgbm \
+        pango \
+        cairo \
+        # Fonts
+        liberation-fonts \
+        google-noto-sans-fonts \
+        google-noto-sans-cjk-ttc-fonts \
+        google-noto-emoji-fonts \
     && \
-    # ------------------------------------------------------------
-    # Clean up apt caches to reduce image size
-    # ------------------------------------------------------------
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+    microdnf clean all && \
+    rm -rf /var/cache/yum /var/cache/dnf
 
 # ============================================================
-# Install Node.js 20 LTS from official binary distribution
+# Install Chromium from a prebuilt binary (since UBI doesn't ship Chromium)
+# Using Chromium from Linux Foundation / official archives
+# ============================================================
+# Option: Use Google Chrome instead (has a stable RPM for RHEL)
+RUN curl -fsSL https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm -o /tmp/chrome.rpm && \
+    microdnf install -y /tmp/chrome.rpm && \
+    rm -f /tmp/chrome.rpm && \
+    microdnf clean all && \
+    rm -rf /var/cache/yum /var/cache/dnf && \
+    google-chrome --version
+
+# ============================================================
+# Install Node.js 20 LTS from official binary
 # ============================================================
 ENV NODE_VERSION=20.18.0
 RUN ARCH=$(uname -m) && \
     case "$ARCH" in \
         x86_64)  NODE_ARCH=x64 ;; \
         aarch64) NODE_ARCH=arm64 ;; \
-        armv7l)  NODE_ARCH=armv7l ;; \
         *) echo "Unsupported arch: $ARCH" && exit 1 ;; \
     esac && \
     curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" -o /tmp/node.tar.xz && \
     tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --no-same-owner && \
     rm -f /tmp/node.tar.xz && \
-    # Verify installation
     node --version && \
     npm --version && \
-    # Ensure binaries are executable by all users
     chmod -R a+rx /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx
 
 # ============================================================
-# Verify Chromium installation and set environment variables
+# Environment variables for Chrome/Puppeteer
 # ============================================================
-RUN chromium-browser --version || chromium --version
-
-# Puppeteer / headless browser environment variables
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-ENV CHROMIUM_PATH=/usr/bin/chromium-browser
-
-# Recommended Chromium flags for containerized environments
-ENV CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage --disable-gpu --headless --disable-software-rasterizer"
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome
+ENV CHROME_PATH=/usr/bin/google-chrome
+ENV CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage --disable-gpu --headless"
 
 # ============================================================
 # Mendix environment setup
@@ -156,29 +141,25 @@ ENV CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage --disable-gpu --headles
 ENV HOME=/opt/mendix/build
 ENV PYTHONPATH="/opt/mendix/buildpack/lib/:/opt/mendix/buildpack/:/opt/mendix/buildpack/lib/python3.11/site-packages/"
 
-# Set the user ID
 ARG USER_UID=1001
 
 # Copy build artifacts from build container
 COPY --from=builder /opt/mendix /opt/mendix
 
-# Ensure Node.js and npm global directories are accessible to the non-root user
+# npm global dir for non-root user
 RUN mkdir -p /home/mendix/.npm-global && \
     chown -R ${USER_UID}:0 /home/mendix && \
     chmod -R g=u /home/mendix
 
-# Set npm global directory for the non-root user (prevents permission issues)
 ENV NPM_CONFIG_PREFIX=/home/mendix/.npm-global
 ENV PATH=/home/mendix/.npm-global/bin:$PATH
 
-# Switch to non-root user for runtime
+# Switch back to non-root user
 USER ${USER_UID}
 
-# Use nginx supplied by the base OS
 ENV NGINX_CUSTOM_BIN_PATH=/usr/sbin/nginx
 WORKDIR /opt/mendix/build
 
-# Expose nginx port
 ENV PORT=8080
 EXPOSE $PORT
 
