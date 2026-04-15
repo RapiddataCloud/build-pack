@@ -58,6 +58,20 @@ RUN microdnf update -y && \
         which \
         ca-certificates \
         shadow-utils \
+        libX11 \
+        libXcomposite \
+        libXdamage \
+        libXext \
+        libXfixes \
+        libXrandr \
+        libgbm \
+        libxcb \
+        alsa-lib \
+        atk \
+        cups-libs \
+        gtk3 \
+        nss \
+        pango \
     && microdnf clean all && \
     rm -rf /var/cache/yum /var/cache/dnf
 
@@ -71,16 +85,21 @@ RUN if [ ! -z "$DD_API_KEY" ] ; then \
     fi
 
 # ============================================================
-# Step 3: Install Google Chrome
-# The Chrome RPM automatically pulls in all required dependencies
-# (nss, gtk3, fonts, etc.) - no need to list them manually
+# Step 3: Install Google Chrome at /opt/chrome/chrome-linux/
+# Target path: /opt/chrome/chrome-linux/chrome
 # ============================================================
-RUN curl -fsSL https://dl.google.com/linux/direct/google-chrome-stable_current_x86_64.rpm -o /tmp/chrome.rpm && \
-    microdnf install -y /tmp/chrome.rpm && \
-    rm -f /tmp/chrome.rpm && \
+ENV CHROME_VERSION=120.0.6099.109
+RUN curl -fsSL "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip" \
+        -o /tmp/chrome-linux64.zip && \
+    microdnf install -y unzip && \
     microdnf clean all && \
-    rm -rf /var/cache/yum /var/cache/dnf && \
-    google-chrome --version --no-sandbox || true
+    mkdir -p /opt/chrome && \
+    unzip /tmp/chrome-linux64.zip -d /opt/chrome && \
+    mv /opt/chrome/chrome-linux64 /opt/chrome/chrome-linux && \
+    rm -f /tmp/chrome-linux64.zip && \
+    chmod +x /opt/chrome/chrome-linux/chrome && \
+    ln -sf /opt/chrome/chrome-linux/chrome /usr/bin/google-chrome && \
+    /opt/chrome/chrome-linux/chrome --version --no-sandbox || true
 
 # ============================================================
 # Step 4: Install optional fonts (non-fatal if unavailable)
@@ -92,6 +111,7 @@ RUN microdnf install -y liberation-fonts dejavu-sans-fonts 2>/dev/null || \
 
 # ============================================================
 # Step 5: Install Node.js 20 LTS from official binary
+# Target path: /usr/local/bin/node
 # ============================================================
 ENV NODE_VERSION=20.18.0
 RUN ARCH=$(uname -m) && \
@@ -111,8 +131,8 @@ RUN ARCH=$(uname -m) && \
 # Environment variables for Chrome / Puppeteer
 # ============================================================
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome
-ENV CHROME_PATH=/usr/bin/google-chrome
+ENV PUPPETEER_EXECUTABLE_PATH=/opt/chrome/chrome-linux/chrome
+ENV CHROME_PATH=/opt/chrome/chrome-linux/chrome
 ENV CHROMIUM_FLAGS="--no-sandbox --disable-dev-shm-usage --disable-gpu --headless"
 
 # ============================================================
@@ -129,7 +149,9 @@ COPY --from=builder /opt/mendix /opt/mendix
 # npm global dir for non-root user
 RUN mkdir -p /home/mendix/.npm-global && \
     chown -R ${USER_UID}:0 /home/mendix && \
-    chmod -R g=u /home/mendix
+    chmod -R g=u /home/mendix && \
+    chown -R ${USER_UID}:0 /opt/chrome && \
+    chmod -R g=u /opt/chrome
 
 ENV NPM_CONFIG_PREFIX=/home/mendix/.npm-global
 ENV PATH=/home/mendix/.npm-global/bin:$PATH
