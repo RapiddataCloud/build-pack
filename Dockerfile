@@ -2,7 +2,15 @@
 # Base: RHEL/UBI (uses microdnf)
 #
 # Author: Mendix Digital Ecosystems, digitalecosystems@mendix.com
-# Version: v6.0.3 (customized - UBI + Node.js + Google Chrome)
+# Version: v6.0.4 (customized - UBI + Node.js + Google Chrome + Python 3.11 fix)
+#
+# CHANGELOG v6.0.4:
+#   - FIX: Removed bare `microdnf update -y` which pulled in UBI9's python3.9
+#          and hijacked the /usr/bin/python3 symlink, breaking the buildpack's
+#          cp311 wheels (cryptography _rust.abi3.so: undefined symbol _Py_IncRef)
+#   - FIX: Added Step 6 to install python3.11 and force /usr/bin/python3 -> 3.11
+#   - FIX: ENTRYPOINT now invokes /usr/bin/python3.11 explicitly so future
+#          package installs can never break the interpreter resolution again
 
 ARG ROOTFS_IMAGE=mendix-rootfs:app
 ARG BUILDER_ROOTFS_IMAGE=mendix-rootfs:builder
@@ -49,9 +57,12 @@ ARG DD_API_KEY
 
 # ============================================================
 # Step 1: Install basic utilities (guaranteed to be available)
+# NOTE: no bare `microdnf update -y` here — on UBI9 it drags in
+# the python3 (3.9) package as a dependency and repoints
+# /usr/bin/python3 away from the buildpack's 3.11. Install only
+# the explicitly listed packages.
 # ============================================================
-RUN microdnf update -y && \
-    microdnf install -y \
+RUN microdnf install -y \
         tar \
         gzip \
         xz \
@@ -128,6 +139,20 @@ RUN ARCH=$(uname -m) && \
     chmod -R a+rx /usr/local/bin/node /usr/local/bin/npm /usr/local/bin/npx
 
 # ============================================================
+# Step 6: Ensure Python 3.11 is the container's python3
+# The buildpack vendors its dependencies as cp311 wheels under
+# /opt/mendix/buildpack/lib/python3.11/site-packages — the
+# runtime interpreter MUST be 3.11. Any earlier microdnf
+# transaction that installed python3 (3.9) is overridden here.
+# ============================================================
+RUN microdnf install -y python3.11 && \
+    microdnf clean all && \
+    rm -rf /var/cache/yum /var/cache/dnf && \
+    ln -sf /usr/bin/python3.11 /usr/bin/python3 && \
+    /usr/bin/python3.11 --version && \
+    python3 --version
+
+# ============================================================
 # Environment variables for Chrome / Puppeteer
 # ============================================================
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
@@ -165,4 +190,5 @@ WORKDIR /opt/mendix/build
 ENV PORT=8080
 EXPOSE $PORT
 
-ENTRYPOINT ["/opt/mendix/build/startup.py"]
+# Interpreter-explicit: immune to any future /usr/bin/python3 symlink change
+ENTRYPOINT ["/usr/bin/python3.11", "/opt/mendix/build/startup.py"]
