@@ -1,4 +1,4 @@
-# Dockerfile to create a Mendix Docker image with Node.js 20 LTS and Google Chrome
+# Dockerfile to create a Mendix Docker image with Node.js 26 LTS and Google Chrome
 # Base: RHEL/UBI (uses microdnf)
 #
 # Author: Mendix Digital Ecosystems, digitalecosystems@mendix.com
@@ -121,10 +121,10 @@ RUN microdnf install -y liberation-fonts dejavu-sans-fonts 2>/dev/null || \
     rm -rf /var/cache/yum /var/cache/dnf
 
 # ============================================================
-# Step 5: Install Node.js 20 LTS from official binary
+# Step 5: Install Node.js 26 LTS from official binary
 # Target path: /usr/local/bin/node
 # ============================================================
-ENV NODE_VERSION=20.18.0
+ENV NODE_VERSION=26.13.1
 RUN ARCH=$(uname -m) && \
     case "$ARCH" in \
         x86_64)  NODE_ARCH=x64 ;; \
