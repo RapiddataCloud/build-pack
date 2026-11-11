@@ -4,25 +4,12 @@
 # Author: Mendix Digital Ecosystems, digitalecosystems@mendix.com
 # Version: v6.1.0 (customized - UBI + Node.js 26 + Google Chrome + Python 3.11 fix)
 #
-# CHANGELOG v6.1.0:
-#   - Node.js 20 -> 26.13.1 (Node.js 20 is EOL; 26.12.1+ fixes CVE-2026-111497 "Node2Shell")
-#   - Node is called by absolute path and /usr/local/bin is added to PATH (fixes exit code 127)
-#   - curl and libstdc++ installed explicitly; Node tarball verified with SHA256
-#   - Chrome step no longer masks download/install failures with "|| true"
-#
-# CHANGELOG v6.0.4:
-#   - FIX: Removed bare `microdnf update -y` which pulled in UBI9's python3.9
-#          and hijacked the /usr/bin/python3 symlink, breaking the buildpack's
-#          cp311 wheels (cryptography _rust.abi3.so: undefined symbol _Py_IncRef)
-#   - FIX: Added Step 6 to install python3.11 and force /usr/bin/python3 -> 3.11
-#   - FIX: ENTRYPOINT now invokes /usr/bin/python3.11 explicitly so future
-#          package installs can never break the interpreter resolution again
 
 ARG ROOTFS_IMAGE=mendix-rootfs:app
 ARG BUILDER_ROOTFS_IMAGE=mendix-rootfs:builder
 
 # ============================================================
-# Build stage
+# Build stage (unchanged)
 # ============================================================
 FROM ${BUILDER_ROOTFS_IMAGE} AS builder
 
@@ -63,18 +50,20 @@ USER root
 # Datadog key as a build arg - give it to the container at runtime instead.
 ARG DD_API_KEY
 
-# Make sure /usr/local/bin (Node.js) is always on PATH
+# Make sure /usr/local/bin (where Node.js is installed) is always on PATH
 ENV PATH=/usr/local/bin:$PATH
 
 # ============================================================
-# Step 1: Install basic utilities (guaranteed to be available)
+# Step 1: Install basic utilities
 # NOTE: no bare `microdnf update -y` here - on UBI9 it drags in
 # the python3 (3.9) package as a dependency and repoints
 # /usr/bin/python3 away from the buildpack's 3.11. Install only
 # the explicitly listed packages.
+# NOTE: do NOT add "curl" - UBI9-minimal already ships
+# curl-minimal (provides /usr/bin/curl) and the full curl
+# package conflicts with it.
 # ============================================================
 RUN microdnf install -y \
-        curl \
         tar \
         gzip \
         xz \
@@ -98,7 +87,8 @@ RUN microdnf install -y \
         nss \
         pango \
     && microdnf clean all && \
-    rm -rf /var/cache/yum /var/cache/dnf
+    rm -rf /var/cache/yum /var/cache/dnf && \
+    command -v curl || { echo "ERROR: curl not found in base image"; exit 1; }
 
 # ============================================================
 # Step 2: Install Ruby conditionally for Datadog
@@ -112,8 +102,9 @@ RUN if [ ! -z "$DD_API_KEY" ] ; then \
 # ============================================================
 # Step 3: Install Google Chrome at /opt/chrome/chrome-linux/
 # Target path: /opt/chrome/chrome-linux/chrome
-# Download/install failures now stop the build; only the
-# final version check is allowed to fail.
+# Download/unzip failures stop the build; only the final
+# version check is allowed to fail.
+# (unzip is installed in Step 1)
 # ============================================================
 ENV CHROME_VERSION=120.0.6099.109
 RUN set -e; \
@@ -156,7 +147,7 @@ RUN set -e; \
     rm -f "/tmp/${NODE_FILE}" /tmp/node.sha256; \
     if ! /usr/local/bin/node --version; then \
         echo "ERROR: node failed to start. Missing libraries:"; \
-        ldd /usr/local/bin/node | grep -i "not found" || true; \
+        (ldd /usr/local/bin/node 2>&1 | grep -i "not found") || true; \
         exit 1; \
     fi; \
     /usr/local/bin/npm --version; \
@@ -203,7 +194,7 @@ RUN mkdir -p /home/mendix/.npm-global && \
     chmod -R g=u /opt/chrome
 
 ENV NPM_CONFIG_PREFIX=/home/mendix/.npm-global
-ENV PATH=/home/mendix/.npm-global/bin:/usr/local/bin:$PATH
+ENV PATH=/home/mendix/.npm-global/bin:$PATH
 
 # Switch back to non-root user
 USER ${USER_UID}
