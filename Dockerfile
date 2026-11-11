@@ -4,6 +4,22 @@
 # Author: Mendix Digital Ecosystems, digitalecosystems@mendix.com
 # Version: v6.1.0 (customized - UBI + Node.js 26 + Google Chrome + Python 3.11 fix)
 #
+# CHANGELOG v6.1.0:
+#   - Node.js 20 -> 26.13.1 (Node.js 20 is EOL; 26.12.1+ fixes CVE-2026-111497 "Node2Shell")
+#   - Node is invoked by absolute path and /usr/local/bin is added to PATH (fixes exit code 127)
+#   - libatomic installed in Step 1 (required by Node.js 26: libatomic.so.1)
+#   - libstdc++ and unzip installed explicitly in Step 1; curl comes from the base
+#     image's curl-minimal (installing the full "curl" package conflicts with it)
+#   - Node tarball verified against the official SHA256SUMS
+#   - Chrome step no longer masks download/install failures with "|| true"
+#
+# CHANGELOG v6.0.4:
+#   - FIX: Removed bare `microdnf update -y` which pulled in UBI9's python3.9
+#          and hijacked the /usr/bin/python3 symlink, breaking the buildpack's
+#          cp311 wheels (cryptography _rust.abi3.so: undefined symbol _Py_IncRef)
+#   - FIX: Added Step 6 to install python3.11 and force /usr/bin/python3 -> 3.11
+#   - FIX: ENTRYPOINT now invokes /usr/bin/python3.11 explicitly so future
+#          package installs can never break the interpreter resolution again
 
 ARG ROOTFS_IMAGE=mendix-rootfs:app
 ARG BUILDER_ROOTFS_IMAGE=mendix-rootfs:builder
@@ -72,6 +88,7 @@ RUN microdnf install -y \
         ca-certificates \
         shadow-utils \
         libstdc++ \
+        libatomic \
         libX11 \
         libXcomposite \
         libXdamage \
